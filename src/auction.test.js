@@ -12,6 +12,8 @@ import {
   aiPickBidder,
   formatAmount,
   getPlayer,
+  validBidAmounts,
+  squadRating,
 } from './auction.js';
 import { PLAYERS, PURSE, MAX_SQUAD, MIN_SQUAD } from './data.js';
 
@@ -130,5 +132,28 @@ describe('formatAmount', () => {
     expect(formatAmount(200)).toBe('₹2 Cr');
     expect(formatAmount(1525)).toBe('₹15.25 Cr');
     expect(formatAmount(210)).toBe('₹2.1 Cr');
+  });
+});
+
+describe('jump bids and options', () => {
+  it('allows a jump of one extra step and nothing else', () => {
+    let s = fresh();
+    const [next, jump] = validBidAmounts(s.lot);
+    expect(jump).toBe(next + increment(next));
+    expect(placeBid(s, 'CSK', jump + 5)).toBe(s);
+    s = placeBid(s, 'CSK', jump);
+    expect(s.lot.bid).toBe(jump);
+  });
+
+  it('uses a custom purse and random order', () => {
+    const s = createAuction({ humanTeamIds: [], seed: 3, purse: 9000, order: 'random' });
+    expect(s.teams.every((t) => t.purse === 9000)).toBe(true);
+    const prices = s.queue.map((id) => getPlayer(id).basePrice);
+    expect([...prices].sort((a, b) => b - a)).not.toEqual(prices);
+  });
+
+  it('rates a squad on its best eleven', () => {
+    const team = { squad: [{ playerId: 3, price: 200 }] };
+    expect(squadRating(team)).toBe(Math.round(97 / 11));
   });
 });

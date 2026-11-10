@@ -61,18 +61,24 @@ export function overseasCount(team) {
   return team.squad.filter((s) => getPlayer(s.playerId).overseas).length;
 }
 
-export function bidBlockReason(state, teamId) {
+export function validBidAmounts(lot) {
+  const next = nextBidAmount(lot);
+  return [next, next + increment(next)];
+}
+
+export function bidBlockReason(state, teamId, amount) {
   if (state.phase !== 'auction' || !state.lot) return 'No player on the block';
   const team = state.teams.find((t) => t.id === teamId);
   const player = getPlayer(state.lot.playerId);
   if (state.lot.bidder === teamId) return 'Highest bidder';
   if (team.squad.length >= MAX_SQUAD) return 'Squad full';
   if (player.overseas && overseasCount(team) >= MAX_OVERSEAS) return 'Overseas limit';
-  if (nextBidAmount(state.lot) > maxBid(team)) return 'Not enough purse';
+  if ((amount ?? nextBidAmount(state.lot)) > maxBid(team)) return 'Not enough purse';
   return null;
 }
 
-function orderPlayers(rng) {
+function orderPlayers(rng, order) {
+  if (order === 'random') return shuffle(PLAYERS.map((pl) => pl.id), rng);
   const groups = new Map();
   for (const pl of PLAYERS) {
     if (!groups.has(pl.basePrice)) groups.set(pl.basePrice, []);
@@ -94,17 +100,18 @@ function shuffle(list, rng) {
 
 const openLot = (playerId) => ({ playerId, bid: null, bidder: null, bids: [] });
 
-export function createAuction({ humanTeamIds, seed = Date.now() }) {
+export function createAuction({ humanTeamIds, seed = Date.now(), purse = PURSE, order = 'base' }) {
   const rng = mulberry32(seed);
-  const queue = orderPlayers(rng);
+  const queue = orderPlayers(rng, order);
   return {
     phase: 'auction',
     seed,
     round: 1,
+    startPurse: purse,
     teams: TEAMS.map((t) => ({
       ...t,
       human: humanTeamIds.includes(t.id),
-      purse: PURSE,
+      purse,
       squad: [],
     })),
     queue,
@@ -115,9 +122,10 @@ export function createAuction({ humanTeamIds, seed = Date.now() }) {
   };
 }
 
-export function placeBid(state, teamId) {
-  if (bidBlockReason(state, teamId)) return state;
-  const amount = nextBidAmount(state.lot);
+export function placeBid(state, teamId, amount = nextBidAmount(state.lot)) {
+  if (state.phase !== 'auction' || !state.lot) return state;
+  if (!validBidAmounts(state.lot).includes(amount)) return state;
+  if (bidBlockReason(state, teamId, amount)) return state;
   return {
     ...state,
     lot: {
@@ -206,4 +214,19 @@ export function aiPickBidder(state, rng = Math.random) {
   );
   if (keen.length === 0) return null;
   return keen[Math.floor(rng() * keen.length)].id;
+}
+
+// Average rating of a team's best eleven. Empty places count as zero.
+export function squadRating(team) {
+  const best = team.squad
+    .map((s) => getPlayer(s.playerId).rating)
+    .sort((a, b) => b - a)
+    .slice(0, 11);
+  return Math.round(best.reduce((sum, r) => sum + r, 0) / 11);
+}
+
+export function roleCounts(team) {
+  const counts = { Batter: 0, Wicketkeeper: 0, 'All-rounder': 0, Bowler: 0 };
+  for (const s of team.squad) counts[getPlayer(s.playerId).role] += 1;
+  return counts;
 }
